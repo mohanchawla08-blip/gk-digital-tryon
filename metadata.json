@@ -1,0 +1,5 @@
+{
+  "name": "Mother & Daughter VTON",
+  "description": "A virtual try-on application that places selected garments onto a generated image of a mother and daughter against a beautiful backdrop.",
+  "requestFramePermissions": []
+}
