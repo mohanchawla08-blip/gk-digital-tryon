@@ -6,13 +6,16 @@ export type SkinTone = 'Fair' | 'Wheatish' | 'Tan' | 'Dark';
 export type BodyShape = 'Slim' | 'Average' | 'Curvy' | 'Athletic';
 export type Pose = 'Standing' | 'Walking' | 'Sitting' | 'Candid';
 
+// Safely access env var without crashing if undefined.
+// In Vite, this will be replaced by the string value during build if it exists.
 const API_KEY = process.env.API_KEY;
 
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable is not set.");
+// Lazy initialization: We don't throw an error here to ensure the app loads (preventing black screen).
+// We only initialize if the key exists.
+let ai: GoogleGenAI | null = null;
+if (API_KEY) {
+  ai = new GoogleGenAI({ apiKey: API_KEY });
 }
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 export const generateVtonImage = async (
   garments: Record<string, Garment>,
@@ -22,6 +25,11 @@ export const generateVtonImage = async (
   bodyShape: BodyShape = 'Average',
   pose: Pose = 'Standing'
 ): Promise<string> => {
+  // Check for the client instance here, at runtime, so we can show a UI error instead of crashing.
+  if (!ai) {
+    throw new Error("API Key is missing. Please ensure you have added 'API_KEY' to your Netlify Environment Variables.");
+  }
+
   const model = 'gemini-2.5-flash-image';
   
   const parts: any[] = [];

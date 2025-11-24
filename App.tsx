@@ -406,10 +406,10 @@ const App: React.FC = () => {
                 {/* Brand Info */}
                 <div>
                     <h3 className="text-2xl font-bold text-white mb-2">GK Model Shoot</h3>
-                    <p className="text-gray-500 text-sm leading-relaxed mb-6">
+                    <p className="text-gray-300 text-sm leading-relaxed mb-6">
                         Elevating brands through AI & Digital Strategy. The future of fashion photography is here.
                     </p>
-                    <div className="text-gray-500 text-xs">
+                    <div className="text-gray-400 text-xs">
                          &copy; 2025 GK Model Shoot. <br/>All rights reserved.
                     </div>
                 </div>
