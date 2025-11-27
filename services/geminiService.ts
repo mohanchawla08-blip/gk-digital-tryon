@@ -6,12 +6,34 @@ export type SkinTone = 'Fair' | 'Wheatish' | 'Tan' | 'Dark';
 export type BodyShape = 'Slim' | 'Average' | 'Curvy' | 'Athletic';
 export type Pose = 'Standing' | 'Walking' | 'Sitting' | 'Candid';
 
-// Safely access env var without crashing if undefined.
-// In Vite, this will be replaced by the string value during build if it exists.
-const API_KEY = process.env.API_KEY;
+// Safely access env vars without crashing if process is undefined
+const getApiKey = () => {
+  // 1. Try Vite environment variable (standard for Vite apps)
+  // Use type assertion to avoid TypeScript errors if types aren't set up
+  if ((import.meta as any).env?.VITE_API_KEY) {
+    return (import.meta as any).env.VITE_API_KEY;
+  }
+  
+  // 2. Try global window process (polyfill from index.html)
+  if (typeof window !== 'undefined' && (window as any).process?.env?.API_KEY) {
+    return (window as any).process.env.API_KEY;
+  }
 
-// Lazy initialization: We don't throw an error here to ensure the app loads (preventing black screen).
-// We only initialize if the key exists.
+  // 3. Try standard process.env (Node/Build-time replacement)
+  try {
+    if (process.env.API_KEY) {
+        return process.env.API_KEY;
+    }
+  } catch (e) {
+    // process is not defined, ignore
+  }
+  
+  return undefined;
+};
+
+const API_KEY = getApiKey();
+
+// Lazy initialization
 let ai: GoogleGenAI | null = null;
 if (API_KEY) {
   ai = new GoogleGenAI({ apiKey: API_KEY });
@@ -25,9 +47,11 @@ export const generateVtonImage = async (
   bodyShape: BodyShape = 'Average',
   pose: Pose = 'Standing'
 ): Promise<string> => {
-  // Check for the client instance here, at runtime, so we can show a UI error instead of crashing.
+  // Check for the client instance here, at runtime
   if (!ai) {
-    throw new Error("API Key is missing. Please ensure you have added 'API_KEY' to your Netlify Environment Variables.");
+    throw new Error(
+      "API Key is missing. In your Netlify Dashboard, go to Site Configuration > Environment Variables and add a key named 'VITE_API_KEY' with your Google API Key value. Then trigger a new deploy."
+    );
   }
 
   const model = 'gemini-2.5-flash-image';
@@ -60,8 +84,11 @@ export const generateVtonImage = async (
   // Background Classification Keywords
   const traditionalKeywords = ['saree', 'lehenga', 'lahenga', 'kurti', 'dupatta', 'anarkali', 'salwar', 'sharara', 'churidar', 'abaya', 'gharara', 'patiala', 'dhoti', 'blouse (saree/lehenga)', 'straight pants (ethnic)', 'kaftan (ethnic)'];
   const nightwearKeywords = ['night', 'lounge', 'kaftan (nightwear)']; 
-  const formalKeywords = ['gown', 'maxi', 'blazer', 'coat', 'suit', 'formal', 'evening'];
+  const formalKeywords = ['gown', 'maxi', 'evening'];
+  const officeKeywords = ['blazer', 'suit', 'formal', 'shirt (formal)', 'trousers (formal)', 'waistcoat'];
+  const winterKeywords = ['coat', 'jacket', 'pullover', 'sweater', 'winter', 'cardigan', 'shrug'];
   const casualKeywords = ['jeans', 't-shirt', 'hoodie', 'sweatshirt', 'track suit', 'co-ord'];
+  const summerKeywords = ['shorts', 'skirt', 'crop top', 'tank top', 'dress (mini)', 'romper'];
   const swimwearKeywords = ['swim', 'cover-up'];
 
   // Determine background and atmosphere based on attire type
@@ -72,18 +99,30 @@ export const generateVtonImage = async (
     // Nightwear
     sceneDescription = 'a luxurious, dimly lit penthouse bedroom or lounge with plush velvet textures';
     lightingAndTone = 'soft, moody, cinematic night lighting creating a cozy yet high-fashion intimate atmosphere';
-  } else if (garmentKeysLower.some(k => traditionalKeywords.some(tk => k.includes(tk)))) {
-    // Traditional / Ethnic
-    sceneDescription = 'a grand heritage palace courtyard with intricate sandstone arches and marigolds, or a luxury boutique interior';
-    lightingAndTone = 'warm, golden hour sunbeams mixing with rich shadows, enhancing the fabric textures';
   } else if (garmentKeysLower.some(k => swimwearKeywords.some(sk => k.includes(sk)))) {
     // Swimwear / Beach
     sceneDescription = 'a high-end beach club in Ibiza or Maldives with white sand and turquoise water';
     lightingAndTone = 'bright, high-key sunlight with sharp, vibrant contrast';
+  } else if (garmentKeysLower.some(k => winterKeywords.some(wk => k.includes(wk)))) {
+    // Winter / Outerwear
+    sceneDescription = 'a chic, european city street in autumn with fallen leaves, or a stylish snowy urban scene';
+    lightingAndTone = 'soft, diffused overcast light with a cool tone, highlighting the textures of the coat/jacket';
+  } else if (garmentKeysLower.some(k => officeKeywords.some(ok => k.includes(ok)))) {
+    // Office / Formal Workwear
+    sceneDescription = 'a modern, glass-walled office interior or a high-rise corporate lobby';
+    lightingAndTone = 'clean, professional daylight balancing soft interior lighting';
   } else if (garmentKeysLower.some(k => formalKeywords.some(fk => k.includes(fk)))) {
-    // Dresses / Formal / Gowns
+    // Evening Gowns / Dresses
     sceneDescription = 'a red carpet event with blurred paparazzi lights in the background or a marble grand staircase';
     lightingAndTone = 'dramatic spotlighting with a glamorous, polished editorial finish';
+  } else if (garmentKeysLower.some(k => traditionalKeywords.some(tk => k.includes(tk)))) {
+    // Traditional / Ethnic
+    sceneDescription = 'a grand heritage palace courtyard with intricate sandstone arches and marigolds, or a luxury boutique interior';
+    lightingAndTone = 'warm, golden hour sunbeams mixing with rich shadows, enhancing the fabric textures';
+  } else if (garmentKeysLower.some(k => summerKeywords.some(sk => k.includes(sk)))) {
+    // Summer / Day Wear
+    sceneDescription = 'a sunny, vibrant botanical garden or a chic outdoor cafe terrace';
+    lightingAndTone = 'bright, natural daylight with warm sun flare';
   } else if (category === 'unisex' || garmentKeysLower.some(k => casualKeywords.some(ck => k.includes(ck)))) {
     // Streetwear / Unisex / Casual
     sceneDescription = 'a gritty, neon-lit cyberpunk city street at night or a minimal concrete fashion studio';
@@ -100,6 +139,7 @@ export const generateVtonImage = async (
     else if (sceneDescription.includes('bedroom')) sceneDescription += ', sitting on the edge of the bed';
     else if (sceneDescription.includes('courtyard')) sceneDescription += ', sitting on a traditional diwan';
     else if (sceneDescription.includes('pool')) sceneDescription += ', sitting on a lounge chair';
+    else if (sceneDescription.includes('office')) sceneDescription += ', sitting on a modern office chair';
     else sceneDescription += ', sitting on a designer chair';
   } else if (pose === 'Walking') {
      sceneDescription += ', caught in mid-stride walking towards the camera with confidence';

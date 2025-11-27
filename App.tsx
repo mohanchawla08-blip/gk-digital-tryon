@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef } from 'react';
-import GarmentSelector from './components/GarmentSelector';
+import React, { useState, useCallback } from 'react';
+import { GarmentCategoryNav, GarmentUploads } from './components/GarmentSelector';
 import ImageDisplay from './components/ImageDisplay';
 import { generateVtonImage, VtonCategory, SkinTone, BodyShape, Pose } from './services/geminiService';
 import { UploadIcon } from './components/icons';
@@ -10,18 +10,25 @@ export interface Garment {
 }
 
 const App: React.FC = () => {
-  const [selectedGarments, setSelectedGarments] = useState<Record<string, Garment> | null>(null);
+  // --- State for Garment Selection ---
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, { garment: Garment, fileName: string }>>({});
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // --- State for Model Configuration ---
   const [selectedCategory, setSelectedCategory] = useState<VtonCategory>('women');
-  
   const [userModelImage, setUserModelImage] = useState<Garment | null>(null);
   const [skinTone, setSkinTone] = useState<SkinTone>('Wheatish');
   const [bodyShape, setBodyShape] = useState<BodyShape>('Average');
   const [pose, setPose] = useState<Pose>('Standing');
 
+  // --- State for Output ---
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // --- Handlers ---
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id);
     if (element) {
@@ -36,33 +43,60 @@ const App: React.FC = () => {
     }
   };
 
-  const handleGenerateClick = useCallback(async () => {
-    if (!selectedGarments || Object.keys(selectedGarments).length === 0) {
-      setError('Please select and upload at least one garment.');
-      return;
-    }
+  const handleTypeToggle = (type: string) => {
+    const isCurrentlySelected = selectedTypes.includes(type);
 
-    setIsLoading(true);
-    setError(null);
-    setGeneratedImage(null);
-
-    try {
-      const imageB64 = await generateVtonImage(
-        selectedGarments, 
-        selectedCategory,
-        userModelImage,
-        skinTone,
-        bodyShape,
-        pose
-      );
-      setGeneratedImage(`data:image/png;base64,${imageB64}`);
-    } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-    } finally {
-      setIsLoading(false);
+    if (isCurrentlySelected) {
+      setSelectedTypes(prev => prev.filter(t => t !== type));
+      setUploadedFiles(prevFiles => {
+        const newFiles = { ...prevFiles };
+        delete newFiles[type];
+        return newFiles;
+      });
+    } else {
+      setSelectedTypes(prev => [...prev, type]);
     }
-  }, [selectedGarments, selectedCategory, userModelImage, skinTone, bodyShape, pose]);
+  };
+
+  const removeType = (type: string) => {
+    handleTypeToggle(type);
+  };
+
+  const fileToBase64 = (file: File): Promise<Garment> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const result = reader.result as string;
+        const base64 = result.split(',')[1];
+        resolve({ base64, mimeType: file.type });
+      };
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>, type: string) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      try {
+        const garment = await fileToBase64(file);
+        setUploadedFiles(prev => ({
+          ...prev,
+          [type]: { garment, fileName: file.name },
+        }));
+      } catch (error) {
+        console.error("Error processing file:", error);
+      }
+    }
+  };
+
+  const handleRemoveFile = (type: string) => {
+    setUploadedFiles(prev => {
+        const newFiles = { ...prev };
+        delete newFiles[type];
+        return newFiles;
+    });
+  };
 
   const handleModelFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -77,8 +111,6 @@ const App: React.FC = () => {
     }
   };
 
-  const hasSelection = selectedGarments && Object.keys(selectedGarments).length > 0;
-
   const getCategoryLabel = (cat: VtonCategory) => {
     switch(cat) {
         case 'mother-daughter': return 'Mother & Daughter';
@@ -87,6 +119,46 @@ const App: React.FC = () => {
         default: return cat.charAt(0).toUpperCase() + cat.slice(1);
     }
   };
+
+  const handleGenerateClick = useCallback(async () => {
+    const garments = Object.keys(uploadedFiles).reduce<Record<string, Garment>>((acc, key) => {
+        acc[key] = uploadedFiles[key].garment;
+        return acc;
+    }, {});
+
+    if (Object.keys(garments).length === 0) {
+      setError('Please select and upload at least one garment.');
+      // Scroll to error area if necessary, or alert
+      setTimeout(() => scrollToSection('output-section'), 100);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setGeneratedImage(null);
+    
+    // Auto scroll to output section
+    setTimeout(() => scrollToSection('output-section'), 100);
+
+    try {
+      const imageB64 = await generateVtonImage(
+        garments, 
+        selectedCategory,
+        userModelImage,
+        skinTone,
+        bodyShape,
+        pose
+      );
+      setGeneratedImage(`data:image/png;base64,${imageB64}`);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : 'An unknown error occurred.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [uploadedFiles, selectedCategory, userModelImage, skinTone, bodyShape, pose]);
+
+  const hasSelection = Object.keys(uploadedFiles).length > 0;
 
   return (
     <div className="min-h-screen font-sans bg-slate-950 text-gray-100 selection:bg-purple-500 selection:text-white">
@@ -109,7 +181,7 @@ const App: React.FC = () => {
       </nav>
 
       {/* Hero Section */}
-      <section className="relative pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden">
+      <section className="relative pt-32 pb-8 lg:pt-48 lg:pb-16 overflow-hidden">
          {/* Abstract BG */}
          <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
              <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-purple-600/20 rounded-full blur-[120px] animate-pulse"></div>
@@ -139,8 +211,8 @@ const App: React.FC = () => {
       </section>
 
       {/* Main App Section (VTON) */}
-      <section id="demo" className="py-20 container mx-auto px-4 sm:px-6 lg:px-8 relative z-10 scroll-mt-24">
-        <div className="text-center mb-12 max-w-3xl mx-auto space-y-4">
+      <section id="demo" className="pt-8 pb-20 container mx-auto px-4 sm:px-6 lg:px-8 relative z-10 scroll-mt-24">
+        <div className="text-center mb-8 max-w-3xl mx-auto space-y-4">
             <h2 className="text-4xl sm:text-5xl font-black text-white tracking-tight">
                 AI Virtual <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500">Studio</span>
             </h2>
@@ -157,14 +229,34 @@ const App: React.FC = () => {
             </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
-          {/* Left Column: Configuration */}
-          <div className="lg:col-span-5 flex flex-col gap-6">
-            <div className="bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 ring-1 ring-white/5">
-              <GarmentSelector onGarmentSelect={setSelectedGarments} />
-            </div>
+        {/* STEP 1: Navigation Bar */}
+        <div className="bg-slate-900/80 backdrop-blur-xl p-4 sm:p-6 rounded-[2rem] border border-white/10 ring-1 ring-white/5 relative z-30 mb-8">
+            <GarmentCategoryNav 
+                selectedTypes={selectedTypes}
+                activeCategory={activeCategory}
+                setActiveCategory={setActiveCategory}
+                toggleType={handleTypeToggle}
+                removeType={removeType}
+                searchTerm={searchTerm}
+                setSearchTerm={setSearchTerm}
+            />
+        </div>
+
+        {/* Stacked Layout for Step 2 and 3 */}
+        <div className="flex flex-col gap-8 mb-12">
             
-            <div className="bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 ring-1 ring-white/5">
+            {/* STEP 2: Upload Garments */}
+            <div className="bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 ring-1 ring-white/5 relative z-20 w-full">
+                <GarmentUploads 
+                    selectedTypes={selectedTypes}
+                    uploadedFiles={uploadedFiles}
+                    onFileChange={handleFileChange}
+                    onRemoveCategory={removeType}
+                />
+            </div>
+
+            {/* STEP 3: Model Configuration */}
+            <div className="bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 ring-1 ring-white/5 relative z-10 w-full">
               <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
                 <span className="flex items-center justify-center w-8 h-8 rounded-full bg-purple-900 text-purple-300 text-sm font-extrabold border border-purple-700">3</span>
                 Model Configuration
@@ -178,7 +270,7 @@ const App: React.FC = () => {
                 {/* Category Grid */}
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Model Type</label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                       {(['women', 'men', 'girls', 'boys', 'kids', 'unisex'] as VtonCategory[]).map((cat) => (
                         <button
                             key={cat}
@@ -300,7 +392,7 @@ const App: React.FC = () => {
                             <div className="flex flex-col items-center justify-center py-4">
                             <UploadIcon className="w-8 h-8 text-gray-600 group-hover:text-purple-400 transition-colors mb-2" />
                             <p className="text-xs text-gray-400 text-center px-4">
-                                <span className="font-bold text-purple-400">Click to upload</span> a reference photo
+                                <span className="font-bold text-purple-400">Click to upload</span> a reference photo or your photo
                             </p>
                             </div>
                             <input type="file" className="hidden" accept="image/*" onChange={handleModelFileChange} />
@@ -308,16 +400,21 @@ const App: React.FC = () => {
                         )}
                     </div>
                 </div>
-
-                <button
+              </div>
+            </div>
+        </div>
+        
+        {/* GENERATE BUTTON */}
+        <div className="mb-12 max-w-4xl mx-auto">
+             <button
                 onClick={handleGenerateClick}
                 disabled={isLoading || !hasSelection}
-                className="w-full relative overflow-hidden group bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold py-5 px-6 rounded-2xl shadow-lg shadow-purple-900/30 hover:shadow-purple-600/50 focus:outline-none transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-1 active:scale-[0.98]"
-                >
-                <span className="relative z-10 flex items-center justify-center gap-3 text-lg tracking-wide">
+                className="w-full relative overflow-hidden group bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold py-6 px-6 rounded-2xl shadow-lg shadow-purple-900/30 hover:shadow-purple-600/50 focus:outline-none transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-1 active:scale-[0.98]"
+            >
+                <span className="relative z-10 flex items-center justify-center gap-3 text-xl tracking-wide">
                 {isLoading ? (
                     <>
-                    <svg className="animate-spin -ml-1 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <svg className="animate-spin -ml-1 h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
@@ -326,28 +423,24 @@ const App: React.FC = () => {
                 ) : (
                     <>
                         Generate Studio Look
-                        <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <svg className="w-6 h-6 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                     </>
                 )}
                 </span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: Output */}
-          <div className="lg:col-span-7">
-             <div className="bg-slate-900/80 backdrop-blur-xl p-2 rounded-[2.5rem] border border-white/10 ring-1 ring-white/5 h-full min-h-[700px] shadow-2xl">
-                <div className="bg-slate-950/50 rounded-[2rem] w-full h-full p-4 sm:p-6 overflow-hidden relative">
-                     <ImageDisplay
-                        isLoading={isLoading}
-                        generatedImage={generatedImage}
-                        error={error}
-                        />
-                </div>
-            </div>
-          </div>
+            </button>
         </div>
+
+        {/* OUTPUT SECTION */}
+        <div id="output-section" className="bg-slate-900/80 backdrop-blur-xl p-2 rounded-[2.5rem] border border-white/10 ring-1 ring-white/5 w-full shadow-2xl min-h-[700px]">
+             <div className="bg-slate-950/50 rounded-[2rem] w-full h-full p-4 sm:p-6 overflow-hidden relative min-h-[700px]">
+                  <ImageDisplay
+                    isLoading={isLoading}
+                    generatedImage={generatedImage}
+                    error={error}
+                  />
+             </div>
+        </div>
+
       </section>
 
       {/* Services Section */}
